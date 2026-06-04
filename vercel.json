@@ -1,1 +1,1 @@
-{"buildCommand":"npx vite build --config vite.vercel.config.js","outputDirectory":"dist","framework":null}
+{"buildCommand":"npx vite build --config vite.vercel.config.js","installCommand":"npm install --legacy-peer-deps","outputDirectory":"dist","framework":null}
