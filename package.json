@@ -5,15 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "granite dev",
-    "build": "vite build", "build:ait": "ait build",
+    "build": "vite build",
+    "build:ait": "ait build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@apps-in-toss/framework": "^2.6.1",
-    "@apps-in-toss/plugins": "^2.6.1",
-    "@apps-in-toss/web-bridge": "^2.6.1",
-    "@apps-in-toss/web-framework": "^2.6.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
