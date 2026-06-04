@@ -1,6 +1,5 @@
-﻿import { defineConfig } from 'vite'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { appsInToss } from '@apps-in-toss/plugins'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 
