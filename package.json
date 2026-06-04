@@ -1,11 +1,11 @@
-{
+﻿{
   "name": "honbap-recipe",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "granite dev",
-    "build": "ait build",
+    "build": "vite build", "build:ait": "ait build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
