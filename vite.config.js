@@ -58,14 +58,6 @@ const anthropicProxy = {
   },
 }
 
-const ait = appsInToss({
-  brand: {
-    displayName: '혼밥쿡',
-    primaryColor: '#FF6B35',
-    icon: 'https://honbap-recipe.vercel.app/icons.svg',
-  },
-  permissions: [],
-})
 
 export default defineConfig({
   plugins: [react(), anthropicProxy],
