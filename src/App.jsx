@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import AIChatScreen from "./AIChatScreen";
 import { createClient } from "@supabase/supabase-js";
 
@@ -7,12 +7,14 @@ const SUPABASE_URL = "https://bsvggbgodbddgvsvxvkn.supabase.co";
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// ─── 앱인토스 인앱결제 상수 ───────────────────────────────────
+const PRODUCT_ID = "sub.tvj.mq074xmz.c79e044982";
+
 // ─── 카테고리 아이콘 ──────────────────────────────────────────
 const CATEGORY_EMOJI = {
   전체: "🍽️", 한식: "🥢", "국/찌개": "🍲", 볶음: "🥘",
   양식: "🍝", 일식: "🍜", 중식: "🥡", 샐러드: "🥗", 간식: "🍡",
 };
-
 
 const CATEGORY_IMG = {
   '한식': 'https://images.pexels.com/photos/2347311/pexels-photo-2347311.jpeg',
@@ -66,9 +68,162 @@ const GlobalStyle = () => (
   `}</style>
 );
 
+// ─── 앱인토스 인앱결제 훅 ──────────────────────────────────────
+function useSubscription() {
+  const [isPremium, setIsPremium] = useState(false);
+  const [purchasing, setPurchasing] = useState(false);
+
+  // 앱 시작 시 구독 상태 확인
+  useEffect(() => {
+    checkSubscription();
+    // 앱인토스 결제 완료 이벤트 리스너
+    window.addEventListener("message", handlePaymentMessage);
+    return () => window.removeEventListener("message", handlePaymentMessage);
+  }, []);
+
+  function handlePaymentMessage(e) {
+    try {
+      const data = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+      if (data?.type === "PAYMENT_SUCCESS" || data?.result === "success") {
+        setIsPremium(true);
+        setPurchasing(false);
+        saveSubscription(data);
+      } else if (data?.type === "PAYMENT_CANCEL" || data?.result === "cancel") {
+        setPurchasing(false);
+      } else if (data?.type === "PAYMENT_FAIL" || data?.result === "fail") {
+        setPurchasing(false);
+        alert("결제에 실패했어요. 다시 시도해주세요.");
+      }
+    } catch (_) {}
+  }
+
+  async function checkSubscription() {
+    try {
+      // 앱인토스 네이티브 구독 상태 확인
+      if (window.Granite?.getSubscriptionStatus) {
+        const status = await window.Granite.getSubscriptionStatus(PRODUCT_ID);
+        if (status?.isActive) { setIsPremium(true); return; }
+      }
+      // window.__ait_user로 유저 확인 후 Supabase에서 구독 확인
+      const userId = window.__ait_user?.id || window.__ait_user?.userId;
+      if (userId) {
+        const { data } = await supabase
+          .from("subscriptions")
+          .select("*")
+          .eq("user_id", userId)
+          .eq("is_active", true)
+          .maybeSingle();
+        if (data) setIsPremium(true);
+      }
+    } catch (_) {}
+  }
+
+  async function saveSubscription(paymentData) {
+    try {
+      const userId = window.__ait_user?.id || window.__ait_user?.userId;
+      if (!userId) return;
+      await supabase.from("subscriptions").upsert({
+        user_id: userId,
+        product_id: PRODUCT_ID,
+        is_active: true,
+        started_at: new Date().toISOString(),
+        payment_data: paymentData,
+      }, { onConflict: "user_id" });
+    } catch (_) {}
+  }
+
+  function purchase() {
+    setPurchasing(true);
+    try {
+      // 앱인토스 인앱결제 호출
+      if (window.Granite?.purchase) {
+        window.Granite.purchase(PRODUCT_ID);
+      } else if (window.__ait_bridge?.purchase) {
+        window.__ait_bridge.purchase(PRODUCT_ID);
+      } else if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: "PURCHASE",
+          productId: PRODUCT_ID,
+        }));
+      } else {
+        // 웹 환경 (개발/테스트)
+        alert("앱에서만 결제할 수 있어요.");
+        setPurchasing(false);
+      }
+    } catch (e) {
+      console.error("결제 오류:", e);
+      setPurchasing(false);
+    }
+  }
+
+  return { isPremium, purchasing, purchase, checkSubscription };
+}
+
+// ─── 프리미엄 페이월 모달 ─────────────────────────────────────
+function PaywallModal({ onClose, onPurchase, purchasing }) {
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+      zIndex: 1000, display: "flex", alignItems: "flex-end",
+    }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="slide-up" style={{
+        width: "100%", background: "#fff", borderRadius: "24px 24px 0 0",
+        padding: "28px 24px 48px",
+      }}>
+        <GlobalStyle />
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
+          <div style={{ fontSize: 52, marginBottom: 12 }}>✨</div>
+          <h2 style={{ fontSize: 22, fontWeight: 900, marginBottom: 8 }}>프리미엄 구독</h2>
+          <p style={{ color: "var(--text-muted)", fontSize: 14, lineHeight: 1.6 }}>
+            AI 냉파 추천과 음성 조리 안내를<br />무제한으로 이용하세요
+          </p>
+        </div>
+
+        {/* 혜택 목록 */}
+        <div style={{ background: "var(--surface2)", borderRadius: 14, padding: "16px", marginBottom: 20 }}>
+          {[
+            ["🤖", "AI 냉파 레시피 추천", "냉장고 재료로 맞춤 레시피"],
+            ["🔊", "음성 조리 안내", "손 없이 요리에 집중"],
+            ["✨", "프리미엄 레시피", "셰프 특급 레시피 전체 공개"],
+          ].map(([icon, title, desc]) => (
+            <div key={title} style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14 }}>
+              <span style={{ fontSize: 22, minWidth: 32, textAlign: "center" }}>{icon}</span>
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 700 }}>{title}</p>
+                <p style={{ fontSize: 12, color: "var(--text-muted)" }}>{desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={onPurchase}
+          disabled={purchasing}
+          style={{
+            width: "100%", padding: "18px",
+            background: purchasing ? "#ccc" : "linear-gradient(135deg, #FF6B35, #FF9A5C)",
+            color: "#fff", borderRadius: "var(--radius)", fontSize: 17, fontWeight: 800,
+            boxShadow: purchasing ? "none" : "0 4px 16px rgba(255,107,53,0.4)",
+          }}>
+          {purchasing ? "결제 진행 중..." : "월 4,906원으로 시작하기 →"}
+        </button>
+        <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-muted)", marginTop: 10 }}>
+          언제든지 해지 가능 · 자동 갱신 구독
+        </p>
+        <button onClick={onClose} style={{
+          width: "100%", padding: "12px", background: "none",
+          color: "var(--text-muted)", fontSize: 14, marginTop: 4,
+        }}>
+          나중에
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── 메인 앱 ─────────────────────────────────────────────────
 export default function App() {
-  const [screen, setScreen] = useState("home"); // home | list | detail | cook | ai // home | list | detail | cook
+  const [screen, setScreen] = useState("home");
   const [recipes, setRecipes] = useState([]);
   const [filtered, setFiltered] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -81,7 +236,10 @@ export default function App() {
   const [timer, setTimer] = useState(null);
   const [timerLeft, setTimerLeft] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
+  const [showPaywall, setShowPaywall] = useState(false);
   const timerRef = useRef(null);
+
+  const { isPremium, purchasing, purchase } = useSubscription();
 
   // 레시피 목록 로드
   useEffect(() => {
@@ -107,8 +265,12 @@ export default function App() {
     setFiltered(r);
   }, [category, search, recipes]);
 
-  // 레시피 상세 로드
+  // 레시피 상세 로드 (프리미엄 체크)
   async function openRecipe(recipe) {
+    if (recipe.is_premium && !isPremium) {
+      setShowPaywall(true);
+      return;
+    }
     setSelected(recipe);
     const [{ data: ing }, { data: stp }] = await Promise.all([
       supabase.from("recipe_ingredients").select("*").eq("recipe_id", recipe.id).order("sort_order"),
@@ -117,6 +279,12 @@ export default function App() {
     setIngredients(ing || []);
     setSteps(stp || []);
     setScreen("detail");
+  }
+
+  // AI 화면 이동 (프리미엄 체크)
+  function goAI() {
+    if (!isPremium) { setShowPaywall(true); return; }
+    setScreen("ai");
   }
 
   // 조리 모드
@@ -159,28 +327,32 @@ export default function App() {
 
   // ── 화면 렌더 ──────────────────────────────────────────────
   if (screen === "cook" && selected) return (
-    <CookMode
-      recipe={selected}
-      steps={steps}
-      cookStep={cookStep}
-      goStep={goStep}
-      timer={timer}
-      timerLeft={timerLeft}
-      timerRunning={timerRunning}
-      toggleTimer={toggleTimer}
-      fmt={fmt}
-      onBack={() => { clearInterval(timerRef.current); setScreen("detail"); }}
-    />
+    <>
+      <CookMode
+        recipe={selected}
+        steps={steps}
+        cookStep={cookStep}
+        goStep={goStep}
+        timer={timer}
+        timerLeft={timerLeft}
+        timerRunning={timerRunning}
+        toggleTimer={toggleTimer}
+        fmt={fmt}
+        onBack={() => { clearInterval(timerRef.current); setScreen("detail"); }}
+      />
+    </>
   );
 
   if (screen === "detail" && selected) return (
-    <DetailScreen
-      recipe={selected}
-      ingredients={ingredients}
-      steps={steps}
-      onBack={() => setScreen("list")}
-      onCook={startCook}
-    />
+    <>
+      <DetailScreen
+        recipe={selected}
+        ingredients={ingredients}
+        steps={steps}
+        onBack={() => setScreen("list")}
+        onCook={startCook}
+      />
+    </>
   );
 
   if (screen === "ai") return (
@@ -188,31 +360,52 @@ export default function App() {
   );
 
   if (screen === "list") return (
-    <ListScreen
-      recipes={filtered}
-      allRecipes={recipes}
-      category={category}
-      setCategory={setCategory}
-      search={search}
-      setSearch={setSearch}
-      loading={loading}
-      onSelect={openRecipe}
-      onBack={() => setScreen("home")}
-    />
+    <>
+      <ListScreen
+        recipes={filtered}
+        allRecipes={recipes}
+        category={category}
+        setCategory={setCategory}
+        search={search}
+        setSearch={setSearch}
+        loading={loading}
+        onSelect={openRecipe}
+        isPremium={isPremium}
+        onBack={() => setScreen("home")}
+      />
+      {showPaywall && (
+        <PaywallModal
+          onClose={() => setShowPaywall(false)}
+          onPurchase={() => { purchase(); }}
+          purchasing={purchasing}
+        />
+      )}
+    </>
   );
 
   return (
-    <HomeScreen
-      recipes={recipes}
-      onGoList={() => setScreen("list")}
-      onSelect={openRecipe}
-      onGoAI={() => setScreen("ai")}
-    />
+    <>
+      <HomeScreen
+        recipes={recipes}
+        onGoList={() => setScreen("list")}
+        onSelect={openRecipe}
+        onGoAI={goAI}
+        isPremium={isPremium}
+        onShowPaywall={() => setShowPaywall(true)}
+      />
+      {showPaywall && (
+        <PaywallModal
+          onClose={() => setShowPaywall(false)}
+          onPurchase={() => { purchase(); }}
+          purchasing={purchasing}
+        />
+      )}
+    </>
   );
 }
 
 // ─── 홈 화면 ─────────────────────────────────────────────────
-function HomeScreen({ recipes, onGoList, onSelect, onGoAI }) {
+function HomeScreen({ recipes, onGoList, onSelect, onGoAI, isPremium, onShowPaywall }) {
   const quick = recipes.filter((r) => r.cooking_time <= 10).slice(0, 4);
   const easy = recipes.filter((r) => r.difficulty === "쉬움").slice(0, 4);
 
@@ -229,17 +422,27 @@ function HomeScreen({ recipes, onGoList, onSelect, onGoAI }) {
           background: "rgba(255,255,255,0.08)", borderRadius: "50%" }} />
         <div style={{ position: "absolute", bottom: -30, left: -10, width: 100, height: 100,
           background: "rgba(255,255,255,0.06)", borderRadius: "50%" }} />
-        <p style={{ color: "rgba(255,255,255,0.85)", fontSize: 13, marginBottom: 4, fontFamily: "var(--font-display)" }}>
-          오늘 뭐 먹지? 🍳
-        </p>
-        <h1 style={{ color: "#fff", fontSize: 28, fontWeight: 900, lineHeight: 1.2, fontFamily: "var(--font-display)" }}>
-          혼밥레시피
-        </h1>
-        <p style={{ color: "rgba(255,255,255,0.8)", fontSize: 13, marginTop: 6 }}>
-          혼자 먹어도 맛있게 · {recipes.length}가지 레시피
-        </p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <p style={{ color: "rgba(255,255,255,0.85)", fontSize: 13, marginBottom: 4, fontFamily: "var(--font-display)" }}>
+              오늘 뭐 먹지? 🍳
+            </p>
+            <h1 style={{ color: "#fff", fontSize: 28, fontWeight: 900, lineHeight: 1.2, fontFamily: "var(--font-display)" }}>
+              혼밥레시피
+            </h1>
+            <p style={{ color: "rgba(255,255,255,0.8)", fontSize: 13, marginTop: 6 }}>
+              혼자 먹어도 맛있게 · {recipes.length}가지 레시피
+            </p>
+          </div>
+          {isPremium && (
+            <div style={{ background: "rgba(255,255,255,0.2)", borderRadius: 20, padding: "4px 12px",
+              fontSize: 12, color: "#fff", fontWeight: 700 }}>
+              ✨ 프리미엄
+            </div>
+          )}
+        </div>
 
-        {/* 검색창 (홈에서 누르면 list로 이동) */}
+        {/* 검색창 */}
         <div onClick={onGoList} style={{
           marginTop: 20, background: "#fff", borderRadius: 12, padding: "12px 16px",
           display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
@@ -274,38 +477,42 @@ function HomeScreen({ recipes, onGoList, onSelect, onGoAI }) {
           전체 레시피 보기 →
         </button>
 
+        {/* AI 버튼 - 프리미엄 여부에 따라 다르게 */}
         <button onClick={onGoAI} style={{
           width: "100%", padding: "16px", background: "var(--secondary)",
           color: "#fff", borderRadius: "var(--radius)", fontSize: 16, fontWeight: 700,
           marginTop: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
         }}>
-          <span>✨</span> AI 냉파 추천받기
+          <span>✨</span>
+          {isPremium ? "AI 냉파 추천받기" : "AI 냉파 추천받기 🔒"}
         </button>
 
-               {/* 프리미엄 배너 */}
-        <div style={{
-          marginTop: 16, background: "linear-gradient(135deg, #2D3A2E, #4A5E4A)",
-          borderRadius: "var(--radius)", padding: "20px", color: "#fff",
-        }}>
-          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginBottom: 4 }}>PREMIUM</p>
-          <p style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>AI 냉파 추천 · 음성 조리 안내</p>
-          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginBottom: 14 }}>
-            냉장고 속 재료만 입력하면 AI가 레시피를 추천해드려요
-          </p>
-          <div style={{
-            display: "inline-block", background: "var(--primary)", borderRadius: 8,
-            padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+        {/* 프리미엄 배너 - 미구독자만 표시 */}
+        {!isPremium && (
+          <div onClick={onShowPaywall} style={{
+            marginTop: 16, background: "linear-gradient(135deg, #2D3A2E, #4A5E4A)",
+            borderRadius: "var(--radius)", padding: "20px", color: "#fff", cursor: "pointer",
           }}>
-            월 4,906원으로 시작하기 ✨
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginBottom: 4 }}>PREMIUM</p>
+            <p style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>AI 냉파 추천 · 음성 조리 안내</p>
+            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginBottom: 14 }}>
+              냉장고 속 재료만 입력하면 AI가 레시피를 추천해드려요
+            </p>
+            <div style={{
+              display: "inline-block", background: "var(--primary)", borderRadius: 8,
+              padding: "8px 16px", fontSize: 13, fontWeight: 700,
+            }}>
+              월 4,906원으로 시작하기 ✨
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
 }
 
 // ─── 레시피 목록 화면 ─────────────────────────────────────────
-function ListScreen({ recipes, allRecipes, category, setCategory, search, setSearch, loading, onSelect, onBack }) {
+function ListScreen({ recipes, allRecipes, category, setCategory, search, setSearch, loading, onSelect, isPremium, onBack }) {
   const categories = ["전체", "한식", "국/찌개", "볶음", "양식", "일식", "중식", "샐러드", "간식"];
 
   return (
@@ -356,7 +563,9 @@ function ListScreen({ recipes, allRecipes, category, setCategory, search, setSea
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {recipes.map((r) => <RecipeCard key={r.id} recipe={r} onClick={() => onSelect(r)} />)}
+            {recipes.map((r) => (
+              <RecipeCard key={r.id} recipe={r} onClick={() => onSelect(r)} isPremium={isPremium} />
+            ))}
           </div>
         )}
       </div>
@@ -569,11 +778,13 @@ function CookMode({ recipe, steps, cookStep, goStep, timer, timerLeft, timerRunn
 }
 
 // ─── 공통 컴포넌트 ────────────────────────────────────────────
-function RecipeCard({ recipe, onClick }) {
+function RecipeCard({ recipe, onClick, isPremium }) {
+  const locked = recipe.is_premium && !isPremium;
   return (
     <div onClick={onClick} className="fade-in" style={{
       background: "var(--surface)", borderRadius: "var(--radius)", overflow: "hidden",
       boxShadow: "var(--shadow)", cursor: "pointer", transition: "transform 0.15s",
+      position: "relative",
     }}
       onMouseDown={(e) => e.currentTarget.style.transform = "scale(0.97)"}
       onMouseUp={(e) => e.currentTarget.style.transform = "scale(1)"}
@@ -584,9 +795,15 @@ function RecipeCard({ recipe, onClick }) {
         <img
           src={(recipe.thumbnail_url || CATEGORY_IMG[recipe.category] || CATEGORY_IMG['한식']) + '?auto=compress&cs=tinysrgb&w=300&h=200&fit=crop'}
           alt={recipe.title}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          style={{ width: "100%", height: "100%", objectFit: "cover", filter: locked ? "blur(3px)" : "none" }}
           onError={(e) => { e.target.style.display = "none"; e.target.parentNode.style.background = "linear-gradient(135deg, #FF6B35, #FF9A5C)"; }}
         />
+        {locked && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
+            justifyContent: "center", background: "rgba(0,0,0,0.3)", fontSize: 22 }}>
+            🔒
+          </div>
+        )}
       </div>
       <div style={{ padding: "10px 12px 12px" }}>
         <p style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3, marginBottom: 6 }}>{recipe.title}</p>
