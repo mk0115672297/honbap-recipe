@@ -68,7 +68,7 @@ const GlobalStyle = () => (
   `}</style>
 );
 
-// ─── 앱인토스 인앱결제 훅 ──────────────────────────────────────
+// ─── 앱인토스 인앱결제 훅 (공식 SDK: createSubscriptionPurchaseOrder) ────
 function useSubscription() {
   const [isPremium, setIsPremium] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
@@ -76,35 +76,23 @@ function useSubscription() {
   // 앱 시작 시 구독 상태 확인
   useEffect(() => {
     checkSubscription();
-    // 앱인토스 결제 완료 이벤트 리스너
-    window.addEventListener("message", handlePaymentMessage);
-    return () => window.removeEventListener("message", handlePaymentMessage);
   }, []);
-
-  function handlePaymentMessage(e) {
-    try {
-      const data = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
-      if (data?.type === "PAYMENT_SUCCESS" || data?.result === "success") {
-        setIsPremium(true);
-        setPurchasing(false);
-        saveSubscription(data);
-      } else if (data?.type === "PAYMENT_CANCEL" || data?.result === "cancel") {
-        setPurchasing(false);
-      } else if (data?.type === "PAYMENT_FAIL" || data?.result === "fail") {
-        setPurchasing(false);
-        alert("결제에 실패했어요. 다시 시도해주세요.");
-      }
-    } catch (_) {}
-  }
 
   async function checkSubscription() {
     try {
-      // 앱인토스 네이티브 구독 상태 확인
-      if (window.Granite?.getSubscriptionStatus) {
-        const status = await window.Granite.getSubscriptionStatus(PRODUCT_ID);
-        if (status?.isActive) { setIsPremium(true); return; }
+      // 공식 SDK로 완료된 주문 조회
+      const { IAP } = await import("@apps-in-toss/web-framework");
+      const orders = await IAP.getCompletedOrRefundedOrders();
+      if (orders?.orders?.some(
+        (o) => o.sku === PRODUCT_ID && o.status === "COMPLETED"
+      )) {
+        setIsPremium(true);
+        return;
       }
-      // window.__ait_user로 유저 확인 후 Supabase에서 구독 확인
+    } catch (_) {}
+
+    // fallback: Supabase에서 구독 확인
+    try {
       const userId = window.__ait_user?.id || window.__ait_user?.userId;
       if (userId) {
         const { data } = await supabase
@@ -132,27 +120,37 @@ function useSubscription() {
     } catch (_) {}
   }
 
-  function purchase() {
+  async function purchase() {
     setPurchasing(true);
     try {
-      // 앱인토스 인앱결제 호출
-      if (window.Granite?.purchase) {
-        window.Granite.purchase(PRODUCT_ID);
-      } else if (window.__ait_bridge?.purchase) {
-        window.__ait_bridge.purchase(PRODUCT_ID);
-      } else if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: "PURCHASE",
-          productId: PRODUCT_ID,
-        }));
-      } else {
-        // 웹 환경 (개발/테스트)
-        alert("앱에서만 결제할 수 있어요.");
-        setPurchasing(false);
-      }
+      const { IAP } = await import("@apps-in-toss/web-framework");
+      // 자동갱신 구독 전용 API 사용
+      const cleanup = IAP.createSubscriptionPurchaseOrder({
+        options: {
+          sku: PRODUCT_ID,
+          processProductGrant: ({ orderId, subscriptionId }) => {
+            console.log("구독 지급:", orderId, subscriptionId);
+            saveSubscription({ orderId, subscriptionId });
+            return true;
+          },
+        },
+        onEvent: (event) => {
+          console.log("구독 성공:", event);
+          setIsPremium(true);
+          setPurchasing(false);
+          cleanup();
+        },
+        onError: (error) => {
+          console.error("구독 실패:", error);
+          setPurchasing(false);
+          alert("결제에 실패했어요. 다시 시도해주세요.");
+          cleanup();
+        },
+      });
     } catch (e) {
       console.error("결제 오류:", e);
       setPurchasing(false);
+      alert("앱에서만 결제할 수 있어요.");
     }
   }
 
