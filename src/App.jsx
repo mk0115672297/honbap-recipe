@@ -11,17 +11,45 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const PRODUCT_ID = "sub.tvj.mq074xmz.c79e044982";
 
 // ─── 앱인토스 인앱광고 상수 ───────────────────────────────────
-const AD_UNIT_ID = "ait.v2.live.39bf975f80c24f57"; // 전면광고
+const AD_INTERSTITIAL_ID = "ait.v2.live.39bf975f80c24f57"; // 전면광고
+const AD_BANNER_ID = "ait.v2.live.e0bf3113a2584406";        // 배너광고
 
 // 전면광고 노출 함수
 async function showInterstitialAd() {
   try {
     const { Ad } = await import("@apps-in-toss/web-framework");
-    const ad = await Ad.loadInterstitial({ adUnitId: AD_UNIT_ID });
+    const ad = await Ad.loadInterstitial({ adUnitId: AD_INTERSTITIAL_ID });
     await ad.show();
   } catch (e) {
     console.warn("광고 로드 실패 (앱 외부 환경):", e);
   }
+}
+
+// 배너광고 컴포넌트
+function BannerAd() {
+  useEffect(() => {
+    let bannerInstance = null;
+    (async () => {
+      try {
+        const { Ad } = await import("@apps-in-toss/web-framework");
+        bannerInstance = await Ad.loadBanner({
+          adUnitId: AD_BANNER_ID,
+          containerId: "honbapcook-banner-ad",
+        });
+        await bannerInstance.show();
+      } catch (e) {
+        console.warn("배너광고 로드 실패:", e);
+      }
+    })();
+    return () => { if (bannerInstance?.destroy) bannerInstance.destroy(); };
+  }, []);
+
+  return (
+    <div id="honbapcook-banner-ad" style={{
+      width: "100%", minHeight: 50,
+      background: "transparent", overflow: "hidden",
+    }} />
+  );
 }
 
 // ─── 카테고리 아이콘 ──────────────────────────────────────────
@@ -520,6 +548,11 @@ function HomeScreen({ recipes, onGoList, onSelect, onGoAI, isPremium, onShowPayw
             </div>
           </div>
         )}
+
+        {/* 배너광고 */}
+        <div style={{ marginTop: 16 }}>
+          <BannerAd />
+        </div>
       </div>
     </div>
   );
@@ -582,6 +615,10 @@ function ListScreen({ recipes, allRecipes, category, setCategory, search, setSea
             ))}
           </div>
         )}
+        {/* 배너광고 */}
+        <div style={{ marginTop: 16 }}>
+          <BannerAd />
+        </div>
       </div>
     </div>
   );
