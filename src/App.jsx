@@ -10,6 +10,20 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // ─── 앱인토스 인앱결제 상수 ───────────────────────────────────
 const PRODUCT_ID = "sub.tvj.mq074xmz.c79e044982";
 
+// ─── 앱인토스 인앱광고 상수 ───────────────────────────────────
+const AD_UNIT_ID = "ait.v2.live.39bf975f80c24f57"; // 전면광고
+
+// 전면광고 노출 함수
+async function showInterstitialAd() {
+  try {
+    const { Ad } = await import("@apps-in-toss/web-framework");
+    const ad = await Ad.loadInterstitial({ adUnitId: AD_UNIT_ID });
+    await ad.show();
+  } catch (e) {
+    console.warn("광고 로드 실패 (앱 외부 환경):", e);
+  }
+}
+
 // ─── 카테고리 아이콘 ──────────────────────────────────────────
 const CATEGORY_EMOJI = {
   전체: "🍽️", 한식: "🥢", "국/찌개": "🍲", 볶음: "🥘",
@@ -286,7 +300,9 @@ export default function App() {
   }
 
   // 조리 모드
-  function startCook() {
+  async function startCook() {
+    // 조리 시작 전 전면광고 노출
+    await showInterstitialAd();
     setCookStep(0);
     setScreen("cook");
     const s = steps[0];
